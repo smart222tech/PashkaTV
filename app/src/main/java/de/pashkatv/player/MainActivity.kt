@@ -100,6 +100,12 @@ private fun PashkaScreen(savedUrl: String, onSaveUrl: (String) -> Unit) {
         }
     }
 
+    LaunchedEffect(Unit) {
+        if (savedUrl.isNotBlank()) {
+            loadPlaylist()
+        }
+    }
+
     Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF10141D)) {
         Row(Modifier.fillMaxSize().padding(18.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
             Column(Modifier.weight(0.36f).fillMaxHeight()) {
