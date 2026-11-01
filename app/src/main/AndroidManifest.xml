@@ -8,6 +8,7 @@
         android:allowBackup="true"
         android:label="PashkaTV"
         android:icon="@mipmap/ic_launcher"
+        android:banner="@drawable/pashkatv_banner"
         android:roundIcon="@mipmap/ic_launcher"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:usesCleartextTraffic="true">
