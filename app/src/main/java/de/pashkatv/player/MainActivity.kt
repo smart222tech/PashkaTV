@@ -1,6 +1,5 @@
 package de.pashkatv.player
 
-import android.net.Uri
 import android.os.Bundle
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
@@ -58,16 +57,14 @@ private fun PashkaScreen(savedUrl: String, onSaveUrl: (String) -> Unit) {
     var loading by remember { mutableStateOf(false) }
     var showUrlDialog by remember { mutableStateOf(savedUrl.isBlank()) }
 
-    val player = remember {
-        ExoPlayer.Builder(context).build()
-    }
-    DisposableEffect(Unit) { onDispose { player.release() } }
+    val exoPlayer = remember { ExoPlayer.Builder(context).build() }
+    DisposableEffect(exoPlayer) { onDispose { exoPlayer.release() } }
 
     LaunchedEffect(selected) {
-        selected?.let {
-            player.setMediaItem(MediaItem.fromUri(it.streamUrl))
-            player.prepare()
-            player.playWhenReady = true
+        selected?.let { channel ->
+            exoPlayer.setMediaItem(MediaItem.fromUri(channel.streamUrl))
+            exoPlayer.prepare()
+            exoPlayer.playWhenReady = true
         }
     }
 
@@ -124,10 +121,7 @@ private fun PashkaScreen(savedUrl: String, onSaveUrl: (String) -> Unit) {
                             color = if (active) Color.White else Color(0xFFD5D9E2),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(
-                                    if (active) Color(0xFF2457A6) else Color(0xFF1B2230),
-                                    RoundedCornerShape(8.dp)
-                                )
+                                .background(if (active) Color(0xFF2457A6) else Color(0xFF1B2230), RoundedCornerShape(8.dp))
                                 .clickable { selected = channel }
                                 .focusable()
                                 .padding(horizontal = 14.dp, vertical = 13.dp),
@@ -139,14 +133,13 @@ private fun PashkaScreen(savedUrl: String, onSaveUrl: (String) -> Unit) {
             }
             Column(Modifier.weight(0.64f).fillMaxHeight()) {
                 Box(
-                    Modifier.fillMaxWidth().weight(1f)
-                        .background(Color.Black, RoundedCornerShape(12.dp)),
+                    Modifier.fillMaxWidth().weight(1f).background(Color.Black, RoundedCornerShape(12.dp)),
                     contentAlignment = Alignment.Center
                 ) {
                     AndroidView(
                         factory = { ctx ->
                             PlayerView(ctx).apply {
-                                player = this@PashkaScreen.player
+                                player = exoPlayer
                                 useController = true
                                 layoutParams = FrameLayout.LayoutParams(
                                     FrameLayout.LayoutParams.MATCH_PARENT,
