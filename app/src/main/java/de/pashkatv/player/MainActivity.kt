@@ -183,7 +183,7 @@ private fun PashkaScreen(
 
     val remoteModifier = Modifier.onPreviewKeyEvent { event ->
         if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-        when (event.nativeKeyEvent.keyCode) {
+        when (event.key) {
             AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_NUMPAD_ENTER -> {
                 if (!showSettings && !showUrlDialog && currentOkOpensList && selected != null) {
                     showChannelList = !showChannelList
