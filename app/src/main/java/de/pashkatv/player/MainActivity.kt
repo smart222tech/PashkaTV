@@ -49,7 +49,7 @@ private val Panel = Color(0xFF111D30)
 private val Accent = Color(0xFF079CF2)
 private val TextMain = Color(0xFFF4F7FC)
 
-data class TvChannel(val name: String, val streamUrl: String)
+data class TvChannel(val name: String, val streamUrl: String, val groupTitle: String = "Allgemein")
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,6 +69,7 @@ class MainActivity : ComponentActivity() {
                 PashkaScreen(
                     savedUrl = prefs.getString("playlist_url", "") ?: "",
                     autoFullscreen = prefs.getBoolean("auto_fullscreen", true),
+                    autoStartOnLaunch = prefs.getBoolean("auto_start_on_launch", false),
                     okOpensList = prefs.getBoolean("ok_opens_list", true),
                     leftRightSwitch = prefs.getBoolean("left_right_switch", true),
                     backClosesOverlay = prefs.getBoolean("back_closes_overlay", true),
@@ -84,6 +85,7 @@ class MainActivity : ComponentActivity() {
 private fun PashkaScreen(
     savedUrl: String,
     autoFullscreen: Boolean,
+    autoStartOnLaunch: Boolean,
     okOpensList: Boolean,
     leftRightSwitch: Boolean,
     backClosesOverlay: Boolean,
@@ -97,6 +99,7 @@ private fun PashkaScreen(
     var playlistUrl by remember { mutableStateOf(savedUrl) }
     var channels by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
     var selectedIndex by remember { mutableIntStateOf(-1) }
+    var selectedGroup by remember { mutableStateOf("Alle") }
     var error by remember { mutableStateOf<String?>(null) }
     var playbackError by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
@@ -105,11 +108,14 @@ private fun PashkaScreen(
     var showSettings by remember { mutableStateOf(false) }
     var showInfo by remember { mutableStateOf(true) }
     var currentAutoFullscreen by remember { mutableStateOf(autoFullscreen) }
+    var currentAutoStartOnLaunch by remember { mutableStateOf(autoStartOnLaunch) }
     var currentOkOpensList by remember { mutableStateOf(okOpensList) }
     var currentLeftRightSwitch by remember { mutableStateOf(leftRightSwitch) }
     var currentBackClosesOverlay by remember { mutableStateOf(backClosesOverlay) }
 
     val selected = channels.getOrNull(selectedIndex)
+    val groups = remember(channels) { listOf("Alle") + channels.map { it.groupTitle }.distinct().sorted() }
+    val visibleChannels = remember(channels, selectedGroup) { if (selectedGroup == "Alle") channels else channels.filter { it.groupTitle == selectedGroup } }
     val exoPlayer = remember {
         val renderersFactory = DefaultRenderersFactory(context)
             .setEnableDecoderFallback(true)
@@ -191,14 +197,15 @@ private fun PashkaScreen(
                     showChannelList = false
                     error = "Keine Sender gefunden. Bitte M3U-Link prüfen."
                 } else {
-                    // Do not start the first stream automatically after playlist loading.
-                    // This separates playlist parsing from playback and avoids an immediate
-                    // decoder crash before the user can inspect/select a channel.
-                    selectedIndex = -1
-                    showChannelList = true
+                    playbackError = null
                     showSettings = false
                     showInfo = false
-                    playbackError = null
+                    selectedGroup = "Alle"
+                    if (currentAutoStartOnLaunch) selectChannel(0)
+                    else {
+                        selectedIndex = -1
+                        showChannelList = true
+                    }
                 }
             } catch (e: Exception) {
                 error = "Playlist konnte nicht geladen werden: ${e.localizedMessage ?: "Unbekannter Fehler"}"
@@ -327,28 +334,50 @@ private fun PashkaScreen(
                         Text("PashkaTV", color = TextMain, fontSize = 25.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                         TextButton(onClick = { showSettings = true; showChannelList = false }) { Text("⚙") }
                     }
-                    Text("${channels.size} Sender", color = Color.LightGray, fontSize = 13.sp)
+                    Text("${channels.size} Sender · ${groups.size - 1} Gruppen", color = Color.LightGray, fontSize = 13.sp)
                     Spacer(Modifier.height(10.dp))
                     if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                        itemsIndexed(channels) { index, channel ->
-                            Row(
-                                Modifier.fillMaxWidth()
-                                    .background(if (index == selectedIndex) Accent.copy(alpha = 0.85f) else Color(0xFF1B2A40), RoundedCornerShape(8.dp))
-                                    .clickable { selectChannel(index) }
-                                    .focusable()
-                                    .padding(horizontal = 12.dp, vertical = 13.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(channel.name, color = TextMain, maxLines = 2, modifier = Modifier.weight(1f))
-                                if (index == selectedIndex) Text("▶", color = TextMain)
+                    Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LazyColumn(Modifier.width(132.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            itemsIndexed(groups) { _, group ->
+                                val count = if (group == "Alle") channels.size else channels.count { it.groupTitle == group }
+                                Surface(
+                                    color = if (selectedGroup == group) Accent.copy(alpha = 0.85f) else Color(0xFF1B2A40),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.fillMaxWidth().clickable { selectedGroup = group }
+                                ) {
+                                    Column(Modifier.padding(9.dp)) {
+                                        Text(group, color = TextMain, maxLines = 2, fontSize = 12.sp)
+                                        Text("$count Sender", color = Color.LightGray, fontSize = 10.sp)
+                                    }
+                                }
+                            }
+                        }
+                        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            itemsIndexed(visibleChannels) { _, channel ->
+                                val index = channels.indexOf(channel)
+                                Row(
+                                    Modifier.fillMaxWidth()
+                                        .background(if (index == selectedIndex) Accent.copy(alpha = 0.85f) else Color(0xFF1B2A40), RoundedCornerShape(8.dp))
+                                        .clickable { selectChannel(index) }
+                                        .focusable()
+                                        .padding(horizontal = 10.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(channel.name, color = TextMain, maxLines = 2, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                                    if (index == selectedIndex) Text("▶", color = TextMain)
+                                }
                             }
                         }
                     }
                     error?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp) }
                     Spacer(Modifier.height(8.dp))
-                    Button(onClick = { showUrlDialog = true }) { Text("Playlist ändern") }
-                    TextButton(onClick = { showChannelList = false }) { Text("Zurück zum Vollbild") }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Button(onClick = { showUrlDialog = true }) { Text("Playlist ändern") }
+                        Spacer(Modifier.width(6.dp))
+                        OutlinedButton(onClick = { showSettings = true; showChannelList = false }) { Text("Einstellungen") }
+                    }
+                    TextButton(onClick = { showChannelList = false }) { Text("Zurück zum Player") }
                 }
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = { showChannelList = false; showInfo = false }, modifier = Modifier.padding(12.dp)) {
@@ -360,6 +389,8 @@ private fun PashkaScreen(
         if (showSettings) {
             SettingsPanel(
                 playlistUrl = playlistUrl,
+                autoStartOnLaunch = currentAutoStartOnLaunch,
+                onAutoStartOnLaunch = { currentAutoStartOnLaunch = it; onSaveSetting("auto_start_on_launch", it) },
                 onPlaylist = { showSettings = false; showUrlDialog = true },
                 autoFullscreen = currentAutoFullscreen,
                 onAutoFullscreen = { currentAutoFullscreen = it; onSaveSetting("auto_fullscreen", it) },
@@ -402,6 +433,8 @@ private fun PashkaScreen(
 @Composable
 private fun SettingsPanel(
     playlistUrl: String,
+    autoStartOnLaunch: Boolean,
+    onAutoStartOnLaunch: (Boolean) -> Unit,
     onPlaylist: () -> Unit,
     autoFullscreen: Boolean,
     onAutoFullscreen: (Boolean) -> Unit,
@@ -438,6 +471,7 @@ private fun SettingsPanel(
                 }
                 Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 12.dp))
                 Text("Player", color = Accent, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                SettingSwitch("Beim App-Start ersten Sender automatisch starten", autoStartOnLaunch, onAutoStartOnLaunch)
                 SettingSwitch("Nach Senderauswahl Vollbild", autoFullscreen, onAutoFullscreen)
                 Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 12.dp))
                 Text("Fernbedienung", color = Accent, fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -466,10 +500,12 @@ private fun SettingSwitch(label: String, checked: Boolean, onCheckedChange: (Boo
 private fun parseM3u(content: String): List<TvChannel> {
     val result = mutableListOf<TvChannel>()
     var pendingName: String? = null
+    var lastExtInfLine: String = ""
     content.lineSequence().forEach { raw ->
         val line = raw.trim()
         when {
             line.startsWith("#EXTINF", ignoreCase = true) -> {
+                lastExtInfLine = line
                 val comma = line.lastIndexOf(',')
                 pendingName = if (comma >= 0 && comma < line.lastIndex) {
                     line.substring(comma + 1).trim().ifBlank { "Unbenannter Sender" }
@@ -480,7 +516,8 @@ private fun parseM3u(content: String): List<TvChannel> {
             }
             line.isNotBlank() && !line.startsWith("#") && pendingName != null -> {
                 if (line.startsWith("http://", true) || line.startsWith("https://", true)) {
-                    result += TvChannel(pendingName!!, line)
+                    val group = Regex("group-title=\\\"([^\\\"]+)\\\"").find(lastExtInfLine)?.groupValues?.getOrNull(1)?.trim()?.ifBlank { "Allgemein" } ?: "Allgemein"
+                    result += TvChannel(pendingName!!, line, group)
                 }
                 pendingName = null
             }
