@@ -188,9 +188,17 @@ private fun PashkaScreen(
                 channels = parsed
                 if (parsed.isEmpty()) {
                     selectedIndex = -1
+                    showChannelList = false
                     error = "Keine Sender gefunden. Bitte M3U-Link prüfen."
                 } else {
-                    selectChannel(0)
+                    // Do not start the first stream automatically after playlist loading.
+                    // This separates playlist parsing from playback and avoids an immediate
+                    // decoder crash before the user can inspect/select a channel.
+                    selectedIndex = -1
+                    showChannelList = true
+                    showSettings = false
+                    showInfo = false
+                    playbackError = null
                 }
             } catch (e: Exception) {
                 error = "Playlist konnte nicht geladen werden: ${e.localizedMessage ?: "Unbekannter Fehler"}"
