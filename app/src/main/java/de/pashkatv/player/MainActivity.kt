@@ -1,7 +1,6 @@
 package de.pashkatv.player
 
 import android.os.Bundle
-import android.view.KeyEvent as AndroidKeyEvent
 import android.view.View
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
@@ -22,6 +21,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -184,26 +185,26 @@ private fun PashkaScreen(
     val remoteModifier = Modifier.onPreviewKeyEvent { event ->
         if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
         when (event.key) {
-            AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER, AndroidKeyEvent.KEYCODE_NUMPAD_ENTER -> {
+            Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
                 if (!showSettings && !showUrlDialog && currentOkOpensList && selected != null) {
                     showChannelList = !showChannelList
                     true
                 } else false
             }
-            AndroidKeyEvent.KEYCODE_DPAD_LEFT -> {
+            Key.DirectionLeft -> {
                 if (!showSettings && !showUrlDialog && !showChannelList && currentLeftRightSwitch && channels.isNotEmpty()) {
                     selectChannel(selectedIndex - 1); true
                 } else false
             }
-            AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> {
+            Key.DirectionRight -> {
                 if (!showSettings && !showUrlDialog && !showChannelList && currentLeftRightSwitch && channels.isNotEmpty()) {
                     selectChannel(selectedIndex + 1); true
                 } else false
             }
-            AndroidKeyEvent.KEYCODE_MENU, AndroidKeyEvent.KEYCODE_SETTINGS -> {
+            Key.Menu -> {
                 showSettings = true; showChannelList = false; true
             }
-            AndroidKeyEvent.KEYCODE_BACK -> {
+            Key.Escape, Key.Back -> {
                 if (showSettings || showChannelList || showUrlDialog) false
                 else { showChannelList = true; true }
             }
