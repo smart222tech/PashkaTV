@@ -141,7 +141,6 @@ private fun PashkaScreen(
         exoPlayer.addListener(listener)
         onDispose {
             exoPlayer.removeListener(listener)
-            exoPlayer.clearVideoTextureView()
             exoPlayer.release()
         }
     }
