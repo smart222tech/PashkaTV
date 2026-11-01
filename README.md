@@ -1,0 +1,2 @@
+# PashkaTV
+iptv player
