@@ -2,6 +2,7 @@ package de.pashkatv.player
 
 import android.os.Bundle
 import android.view.View
+import android.view.TextureView
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -39,7 +40,6 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -141,6 +141,7 @@ private fun PashkaScreen(
         exoPlayer.addListener(listener)
         onDispose {
             exoPlayer.removeListener(listener)
+            exoPlayer.clearVideoTextureView()
             exoPlayer.release()
         }
     }
@@ -265,17 +266,15 @@ private fun PashkaScreen(
     Box(Modifier.fillMaxSize().background(Background).focusRequester(rootFocusRequester).then(remoteModifier).focusable()) {
         AndroidView(
             factory = { ctx ->
-                PlayerView(ctx).apply {
-                    player = exoPlayer
-                    useController = false
-                    resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                TextureView(ctx).apply {
                     layoutParams = FrameLayout.LayoutParams(
                         FrameLayout.LayoutParams.MATCH_PARENT,
                         FrameLayout.LayoutParams.MATCH_PARENT
                     )
+                    exoPlayer.setVideoTextureView(this)
                 }
             },
-            update = { it.player = exoPlayer },
+            update = { exoPlayer.setVideoTextureView(it) },
             modifier = Modifier.fillMaxSize()
         )
 
