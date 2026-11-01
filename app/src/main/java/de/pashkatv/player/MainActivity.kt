@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
@@ -19,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -68,7 +70,7 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Background, surface = Panel)) {
                 PashkaScreen(
                     savedUrl = prefs.getString("playlist_url", "") ?: "",
-                    autoFullscreen = prefs.getBoolean("auto_fullscreen", true),
+                    autoFullscreen = prefs.getBoolean("auto_fullscreen", false),
                     autoStartOnLaunch = prefs.getBoolean("auto_start_on_launch", false),
                     okOpensList = prefs.getBoolean("ok_opens_list", true),
                     leftRightSwitch = prefs.getBoolean("left_right_switch", true),
@@ -341,10 +343,19 @@ private fun PashkaScreen(
                         LazyColumn(Modifier.width(180.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                             itemsIndexed(groups) { _, group ->
                                 val count = if (group == "Alle") channels.size else channels.count { it.groupTitle == group }
+                                var groupFocused by remember(group) { mutableStateOf(false) }
                                 Surface(
-                                    color = if (selectedGroup == group) Accent.copy(alpha = 0.85f) else Color(0xFF1B2A40),
+                                    color = when {
+                                        groupFocused -> Color(0xFF15558A)
+                                        selectedGroup == group -> Accent.copy(alpha = 0.55f)
+                                        else -> Color(0xFF1B2A40)
+                                    },
                                     shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.fillMaxWidth().clickable { selectedGroup = group }
+                                    modifier = Modifier.fillMaxWidth()
+                                        .border(if (groupFocused) 3.dp else 1.dp, if (groupFocused) Color.White else Color(0xFF30445F), RoundedCornerShape(8.dp))
+                                        .onFocusChanged { groupFocused = it.isFocused }
+                                        .focusable()
+                                        .clickable { selectedGroup = group }
                                 ) {
                                     Column(Modifier.padding(9.dp)) {
                                         Text(group, color = TextMain, maxLines = 2, fontSize = 12.sp)
@@ -356,11 +367,21 @@ private fun PashkaScreen(
                         LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                             itemsIndexed(visibleChannels) { _, channel ->
                                 val index = channels.indexOf(channel)
+                                var channelFocused by remember(channel.streamUrl) { mutableStateOf(false) }
                                 Row(
                                     Modifier.fillMaxWidth()
-                                        .background(if (index == selectedIndex) Accent.copy(alpha = 0.85f) else Color(0xFF1B2A40), RoundedCornerShape(8.dp))
-                                        .clickable { selectChannel(index) }
+                                        .background(
+                                            when {
+                                                channelFocused -> Color(0xFF15558A)
+                                                index == selectedIndex -> Accent.copy(alpha = 0.65f)
+                                                else -> Color(0xFF1B2A40)
+                                            },
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .border(if (channelFocused) 3.dp else 1.dp, if (channelFocused) Color.White else Color(0xFF30445F), RoundedCornerShape(8.dp))
+                                        .onFocusChanged { channelFocused = it.isFocused }
                                         .focusable()
+                                        .clickable { selectChannel(index) }
                                         .padding(horizontal = 10.dp, vertical = 12.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
