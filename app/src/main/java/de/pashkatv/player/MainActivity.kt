@@ -31,7 +31,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.lifecycleScope
+import android.util.Log
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.Dispatchers
@@ -94,6 +98,7 @@ private fun PashkaScreen(
     var channels by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
     var selectedIndex by remember { mutableIntStateOf(-1) }
     var error by remember { mutableStateOf<String?>(null) }
+    var playbackError by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
     var showUrlDialog by remember { mutableStateOf(savedUrl.isBlank()) }
     var showChannelList by remember { mutableStateOf(false) }
@@ -105,11 +110,38 @@ private fun PashkaScreen(
     var currentBackClosesOverlay by remember { mutableStateOf(backClosesOverlay) }
 
     val selected = channels.getOrNull(selectedIndex)
-    val exoPlayer = remember { ExoPlayer.Builder(context).build() }
-    DisposableEffect(exoPlayer) { onDispose { exoPlayer.release() } }
+    val exoPlayer = remember {
+        val renderersFactory = DefaultRenderersFactory(context)
+            .setEnableDecoderFallback(true)
+        ExoPlayer.Builder(context, renderersFactory).build()
+    }
+
+    DisposableEffect(exoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onPlayerError(exception: PlaybackException) {
+                val detail = exception.cause?.localizedMessage
+                    ?: exception.localizedMessage
+                    ?: exception.errorCodeName
+                playbackError = "Wiedergabefehler: $detail"
+                Log.e("PashkaTV-Player", "Playback error: ${exception.errorCodeName}", exception)
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                Log.d("PashkaTV-Player", "Playback state: $playbackState")
+            }
+        }
+        exoPlayer.addListener(listener)
+        onDispose {
+            exoPlayer.removeListener(listener)
+            exoPlayer.release()
+        }
+    }
 
     LaunchedEffect(selected?.streamUrl) {
         selected?.let { channel ->
+            playbackError = null
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
             exoPlayer.setMediaItem(MediaItem.fromUri(channel.streamUrl))
             exoPlayer.prepare()
             exoPlayer.playWhenReady = true
@@ -229,6 +261,26 @@ private fun PashkaScreen(
             update = { it.player = exoPlayer },
             modifier = Modifier.fillMaxSize()
         )
+
+        if (playbackError != null && selected != null) {
+            Column(
+                Modifier.align(Alignment.Center)
+                    .background(Panel.copy(alpha = 0.96f), RoundedCornerShape(16.dp))
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("Sender kann nicht abgespielt werden", color = TextMain, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text(playbackError ?: "", color = Color(0xFFFF8A80), modifier = Modifier.padding(top = 10.dp))
+                Button(
+                    onClick = {
+                        playbackError = null
+                        exoPlayer.prepare()
+                        exoPlayer.playWhenReady = true
+                    },
+                    modifier = Modifier.padding(top = 12.dp)
+                ) { Text("Erneut versuchen") }
+            }
+        }
 
         if (selected == null) {
             Column(
