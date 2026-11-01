@@ -76,6 +76,7 @@ private fun PashkaScreen(
     val context = LocalContext.current
     val activity = context as? ComponentActivity
     val scope = rememberCoroutineScope()
+    val rootFocusRequester = remember { FocusRequester() }
     var playlistUrl by remember { mutableStateOf(savedUrl) }
     var channels by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
     var selectedIndex by remember { mutableIntStateOf(-1) }
@@ -104,6 +105,7 @@ private fun PashkaScreen(
 
     fun selectChannel(index: Int) {
         if (channels.isNotEmpty()) {
+            rootFocusRequester.requestFocus()
             selectedIndex = (index + channels.size) % channels.size
             showChannelList = !currentAutoFullscreen
             showSettings = false
@@ -154,6 +156,7 @@ private fun PashkaScreen(
     }
 
     LaunchedEffect(Unit) {
+        rootFocusRequester.requestFocus()
         if (savedUrl.isNotBlank()) loadPlaylist()
     }
 
@@ -197,7 +200,7 @@ private fun PashkaScreen(
         }
     }
 
-    Box(Modifier.fillMaxSize().background(Background).then(remoteModifier)) {
+    Box(Modifier.fillMaxSize().background(Background).focusRequester(rootFocusRequester).then(remoteModifier).focusable()) {
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -294,7 +297,7 @@ private fun PashkaScreen(
                 backClosesOverlay = currentBackClosesOverlay,
                 onBackClosesOverlay = { currentBackClosesOverlay = it; onSaveSetting("back_closes_overlay", it) },
                 onReload = { showSettings = false; loadPlaylist() },
-                onClose = { showSettings = false }
+                onClose = { showSettings = false; rootFocusRequester.requestFocus() }
             )
         }
     }
