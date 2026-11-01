@@ -328,7 +328,7 @@ private fun PashkaScreen(
         if (showChannelList) {
             Row(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.48f))) {
                 Column(
-                    Modifier.fillMaxHeight().width(340.dp).background(Panel.copy(alpha = 0.98f)).padding(16.dp)
+                    Modifier.fillMaxHeight().width(560.dp).background(Panel.copy(alpha = 0.98f)).padding(16.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("PashkaTV", color = TextMain, fontSize = 25.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -338,7 +338,7 @@ private fun PashkaScreen(
                     Spacer(Modifier.height(10.dp))
                     if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                     Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        LazyColumn(Modifier.width(132.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        LazyColumn(Modifier.width(180.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                             itemsIndexed(groups) { _, group ->
                                 val count = if (group == "Alle") channels.size else channels.count { it.groupTitle == group }
                                 Surface(
