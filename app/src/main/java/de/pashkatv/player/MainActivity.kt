@@ -105,7 +105,7 @@ private fun PashkaScreen(
     fun selectChannel(index: Int) {
         if (channels.isNotEmpty()) {
             selectedIndex = (index + channels.size) % channels.size
-            showChannelList = false
+            showChannelList = !currentAutoFullscreen
             showSettings = false
             showInfo = true
         }
