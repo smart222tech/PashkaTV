@@ -1,8 +1,10 @@
 package de.pashkatv.player
 
 import android.os.Bundle
+import android.view.KeyEvent as AndroidKeyEvent
 import android.widget.FrameLayout
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -16,7 +18,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.nativeKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -30,6 +36,11 @@ import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
 
+private val Background = Color(0xFF080F1D)
+private val Panel = Color(0xFF111D30)
+private val Accent = Color(0xFF079CF2)
+private val TextMain = Color(0xFFF4F7FC)
+
 data class TvChannel(val name: String, val streamUrl: String)
 
 class MainActivity : ComponentActivity() {
@@ -37,10 +48,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val prefs = getSharedPreferences("pashkatv", MODE_PRIVATE)
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) {
+            MaterialTheme(colorScheme = darkColorScheme(primary = Accent, background = Background, surface = Panel)) {
                 PashkaScreen(
                     savedUrl = prefs.getString("playlist_url", "") ?: "",
-                    onSaveUrl = { prefs.edit().putString("playlist_url", it).apply() }
+                    autoFullscreen = prefs.getBoolean("auto_fullscreen", true),
+                    okOpensList = prefs.getBoolean("ok_opens_list", true),
+                    leftRightSwitch = prefs.getBoolean("left_right_switch", true),
+                    backClosesOverlay = prefs.getBoolean("back_closes_overlay", true),
+                    onSaveUrl = { prefs.edit().putString("playlist_url", it).apply() },
+                    onSaveSetting = { key, value -> prefs.edit().putBoolean(key, value).apply() }
                 )
             }
         }
@@ -48,19 +64,37 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun PashkaScreen(savedUrl: String, onSaveUrl: (String) -> Unit) {
+private fun PashkaScreen(
+    savedUrl: String,
+    autoFullscreen: Boolean,
+    okOpensList: Boolean,
+    leftRightSwitch: Boolean,
+    backClosesOverlay: Boolean,
+    onSaveUrl: (String) -> Unit,
+    onSaveSetting: (String, Boolean) -> Unit
+) {
     val context = LocalContext.current
+    val activity = context as? ComponentActivity
+    val scope = rememberCoroutineScope()
     var playlistUrl by remember { mutableStateOf(savedUrl) }
     var channels by remember { mutableStateOf<List<TvChannel>>(emptyList()) }
-    var selected by remember { mutableStateOf<TvChannel?>(null) }
+    var selectedIndex by remember { mutableIntStateOf(-1) }
     var error by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
     var showUrlDialog by remember { mutableStateOf(savedUrl.isBlank()) }
+    var showChannelList by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(false) }
+    var showInfo by remember { mutableStateOf(true) }
+    var currentAutoFullscreen by remember { mutableStateOf(autoFullscreen) }
+    var currentOkOpensList by remember { mutableStateOf(okOpensList) }
+    var currentLeftRightSwitch by remember { mutableStateOf(leftRightSwitch) }
+    var currentBackClosesOverlay by remember { mutableStateOf(backClosesOverlay) }
 
+    val selected = channels.getOrNull(selectedIndex)
     val exoPlayer = remember { ExoPlayer.Builder(context).build() }
     DisposableEffect(exoPlayer) { onDispose { exoPlayer.release() } }
 
-    LaunchedEffect(selected) {
+    LaunchedEffect(selected?.streamUrl) {
         selected?.let { channel ->
             exoPlayer.setMediaItem(MediaItem.fromUri(channel.streamUrl))
             exoPlayer.prepare()
@@ -68,30 +102,49 @@ private fun PashkaScreen(savedUrl: String, onSaveUrl: (String) -> Unit) {
         }
     }
 
+    fun selectChannel(index: Int) {
+        if (channels.isNotEmpty()) {
+            selectedIndex = (index + channels.size) % channels.size
+            showChannelList = false
+            showSettings = false
+            showInfo = true
+        }
+    }
+
     fun loadPlaylist() {
-        if (playlistUrl.isBlank()) {
-            error = "Bitte eine M3U-Playlist-URL eingeben."
+        val url = playlistUrl.trim()
+        if (url.isBlank()) {
+            error = "Bitte zuerst eine M3U-Playlist-URL eingeben."
+            showUrlDialog = true
             return
         }
         loading = true
         error = null
-        onSaveUrl(playlistUrl.trim())
-        (context as? ComponentActivity)?.lifecycleScope?.launch {
+        onSaveUrl(url)
+        scope.launch {
             try {
-                val result = withContext(Dispatchers.IO) {
-                    val connection = URL(playlistUrl.trim()).openConnection() as HttpURLConnection
+                val text = withContext(Dispatchers.IO) {
+                    val connection = URL(url).openConnection() as HttpURLConnection
                     connection.connectTimeout = 15000
-                    connection.readTimeout = 20000
-                    connection.setRequestProperty("User-Agent", "PashkaTV/1.0")
+                    connection.readTimeout = 25000
+                    connection.setRequestProperty("User-Agent", "PashkaTV/2.0")
                     try {
+                        if (connection.responseCode !in 200..299) {
+                            throw IllegalStateException("HTTP ${connection.responseCode}")
+                        }
                         connection.inputStream.bufferedReader().use { it.readText() }
                     } finally {
                         connection.disconnect()
                     }
                 }
-                channels = parseM3u(result)
-                if (channels.isEmpty()) error = "Keine Sender gefunden. Bitte M3U-Link prüfen."
-                else selected = channels.first()
+                val parsed = parseM3u(text)
+                channels = parsed
+                if (parsed.isEmpty()) {
+                    selectedIndex = -1
+                    error = "Keine Sender gefunden. Bitte M3U-Link prüfen."
+                } else {
+                    selectChannel(0)
+                }
             } catch (e: Exception) {
                 error = "Playlist konnte nicht geladen werden: ${e.localizedMessage ?: "Unbekannter Fehler"}"
             } finally {
@@ -101,88 +154,236 @@ private fun PashkaScreen(savedUrl: String, onSaveUrl: (String) -> Unit) {
     }
 
     LaunchedEffect(Unit) {
-        if (savedUrl.isNotBlank()) {
-            loadPlaylist()
+        if (savedUrl.isNotBlank()) loadPlaylist()
+    }
+
+    BackHandler(enabled = showSettings || showChannelList || showUrlDialog || selected != null) {
+        when {
+            showUrlDialog -> showUrlDialog = false
+            showSettings -> showSettings = false
+            showChannelList -> showChannelList = false
+            currentBackClosesOverlay -> showChannelList = true
+            else -> showChannelList = true
         }
     }
 
-    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF10141D)) {
-        Row(Modifier.fillMaxSize().padding(18.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
-            Column(Modifier.weight(0.36f).fillMaxHeight()) {
-                Text("PashkaTV", fontSize = 30.sp, color = Color.White)
-                Spacer(Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Button(onClick = { showUrlDialog = true }) { Text("Playlist") }
-                    Spacer(Modifier.width(8.dp))
-                    Text("${channels.size} Sender", color = Color.LightGray)
-                }
-                Spacer(Modifier.height(12.dp))
-                if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
-                error?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 13.sp) }
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    itemsIndexed(channels) { _, channel ->
-                        val active = selected == channel
-                        Text(
-                            text = channel.name,
-                            color = if (active) Color.White else Color(0xFFD5D9E2),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(if (active) Color(0xFF2457A6) else Color(0xFF1B2230), RoundedCornerShape(8.dp))
-                                .clickable { selected = channel }
-                                .focusable()
-                                .padding(horizontal = 14.dp, vertical = 13.dp),
-                            fontSize = 16.sp,
-                            maxLines = 2
-                        )
-                    }
-                }
+    val remoteModifier = Modifier.onPreviewKeyEvent { event ->
+        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+        when (event.nativeKeyEvent.keyCode) {
+            AndroidKeyEvent.KEYCODE_DPAD_CENTER, AndroidKeyEvent.KEYCODE_ENTER -> {
+                if (!showSettings && !showUrlDialog && currentOkOpensList && selected != null) {
+                    showChannelList = !showChannelList
+                    true
+                } else false
             }
-            Column(Modifier.weight(0.64f).fillMaxHeight()) {
-                Box(
-                    Modifier.fillMaxWidth().weight(1f).background(Color.Black, RoundedCornerShape(12.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    AndroidView(
-                        factory = { ctx ->
-                            PlayerView(ctx).apply {
-                                player = exoPlayer
-                                useController = true
-                                layoutParams = FrameLayout.LayoutParams(
-                                    FrameLayout.LayoutParams.MATCH_PARENT,
-                                    FrameLayout.LayoutParams.MATCH_PARENT
-                                )
-                            }
-                        },
-                        modifier = Modifier.fillMaxSize()
+            AndroidKeyEvent.KEYCODE_DPAD_LEFT -> {
+                if (!showSettings && !showUrlDialog && !showChannelList && currentLeftRightSwitch && channels.isNotEmpty()) {
+                    selectChannel(selectedIndex - 1); true
+                } else false
+            }
+            AndroidKeyEvent.KEYCODE_DPAD_RIGHT -> {
+                if (!showSettings && !showUrlDialog && !showChannelList && currentLeftRightSwitch && channels.isNotEmpty()) {
+                    selectChannel(selectedIndex + 1); true
+                } else false
+            }
+            AndroidKeyEvent.KEYCODE_MENU, AndroidKeyEvent.KEYCODE_SETTINGS -> {
+                showSettings = true; showChannelList = false; true
+            }
+            AndroidKeyEvent.KEYCODE_BACK -> {
+                if (showSettings || showChannelList || showUrlDialog) false
+                else { showChannelList = true; true }
+            }
+            else -> false
+        }
+    }
+
+    Box(Modifier.fillMaxSize().background(Background).then(remoteModifier)) {
+        AndroidView(
+            factory = { ctx ->
+                PlayerView(ctx).apply {
+                    player = exoPlayer
+                    useController = false
+                    resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    layoutParams = FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        FrameLayout.LayoutParams.MATCH_PARENT
                     )
-                    if (selected == null) Text("Playlist laden und Sender auswählen", color = Color.White)
                 }
-                Spacer(Modifier.height(10.dp))
-                Text(selected?.name ?: "Kein Sender ausgewählt", color = Color.White, fontSize = 18.sp)
+            },
+            update = { it.player = exoPlayer },
+            modifier = Modifier.fillMaxSize()
+        )
+
+        if (selected == null) {
+            Column(
+                Modifier.align(Alignment.Center).background(Panel.copy(alpha = 0.96f), RoundedCornerShape(18.dp)).padding(28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text("PashkaTV", color = TextMain, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+                Text(if (loading) "Playlist wird geladen …" else "Playlist hinzufügen, um fernzusehen", color = Color.LightGray)
+                Spacer(Modifier.height(16.dp))
+                Button(onClick = { showUrlDialog = true }) { Text("Playlist hinzufügen") }
+                error?.let { Text(it, color = Color(0xFFFF8A80), modifier = Modifier.padding(top = 8.dp)) }
             }
+        }
+
+        if (selected != null && showInfo && !showChannelList && !showSettings) {
+            Row(
+                Modifier.align(Alignment.BottomStart).fillMaxWidth()
+                    .background(Background.copy(alpha = 0.82f)).padding(horizontal = 28.dp, vertical = 18.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(selected.name, color = TextMain, fontSize = 23.sp, fontWeight = FontWeight.Bold)
+                    Text("← / → Sender wechseln     OK Senderliste     MENU Einstellungen", color = Color.LightGray, fontSize = 13.sp)
+                }
+                TextButton(onClick = { showChannelList = true }) { Text("Sender", color = TextMain) }
+                TextButton(onClick = { showSettings = true }) { Text("⚙ Einstellungen", color = TextMain) }
+            }
+        }
+
+        if (showChannelList) {
+            Row(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.48f))) {
+                Column(
+                    Modifier.fillMaxHeight().width(340.dp).background(Panel.copy(alpha = 0.98f)).padding(16.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("PashkaTV", color = TextMain, fontSize = 25.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { showSettings = true; showChannelList = false }) { Text("⚙") }
+                    }
+                    Text("${channels.size} Sender", color = Color.LightGray, fontSize = 13.sp)
+                    Spacer(Modifier.height(10.dp))
+                    if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        itemsIndexed(channels) { index, channel ->
+                            Row(
+                                Modifier.fillMaxWidth()
+                                    .background(if (index == selectedIndex) Accent.copy(alpha = 0.85f) else Color(0xFF1B2A40), RoundedCornerShape(8.dp))
+                                    .clickable { selectChannel(index) }
+                                    .focusable()
+                                    .padding(horizontal = 12.dp, vertical = 13.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(channel.name, color = TextMain, maxLines = 2, modifier = Modifier.weight(1f))
+                                if (index == selectedIndex) Text("▶", color = TextMain)
+                            }
+                        }
+                    }
+                    error?.let { Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp) }
+                    Spacer(Modifier.height(8.dp))
+                    Button(onClick = { showUrlDialog = true }) { Text("Playlist ändern") }
+                    TextButton(onClick = { showChannelList = false }) { Text("Zurück zum Vollbild") }
+                }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = { showChannelList = false; showInfo = false }, modifier = Modifier.padding(12.dp)) {
+                    Text("Schließen", color = TextMain)
+                }
+            }
+        }
+
+        if (showSettings) {
+            SettingsPanel(
+                playlistUrl = playlistUrl,
+                onPlaylist = { showSettings = false; showUrlDialog = true },
+                autoFullscreen = currentAutoFullscreen,
+                onAutoFullscreen = { currentAutoFullscreen = it; onSaveSetting("auto_fullscreen", it) },
+                okOpensList = currentOkOpensList,
+                onOkOpensList = { currentOkOpensList = it; onSaveSetting("ok_opens_list", it) },
+                leftRightSwitch = currentLeftRightSwitch,
+                onLeftRightSwitch = { currentLeftRightSwitch = it; onSaveSetting("left_right_switch", it) },
+                backClosesOverlay = currentBackClosesOverlay,
+                onBackClosesOverlay = { currentBackClosesOverlay = it; onSaveSetting("back_closes_overlay", it) },
+                onReload = { showSettings = false; loadPlaylist() },
+                onClose = { showSettings = false }
+            )
         }
     }
 
     if (showUrlDialog) {
         AlertDialog(
             onDismissRequest = { showUrlDialog = false },
-            title = { Text("M3U-Playlist hinzufügen") },
+            title = { Text("M3U / M3U8 Playlist") },
             text = {
-                OutlinedTextField(
-                    value = playlistUrl,
-                    onValueChange = { playlistUrl = it },
-                    label = { Text("Playlist-URL") },
-                    placeholder = { Text("https://…/playlist.m3u") },
-                    singleLine = true
-                )
+                Column {
+                    OutlinedTextField(
+                        value = playlistUrl,
+                        onValueChange = { playlistUrl = it },
+                        label = { Text("Playlist-URL") },
+                        placeholder = { Text("https://…/playlist.m3u") },
+                        singleLine = true
+                    )
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp)) }
+                }
             },
             confirmButton = {
-                TextButton(onClick = { showUrlDialog = false; loadPlaylist() }) { Text("Laden") }
+                TextButton(onClick = { showUrlDialog = false; loadPlaylist() }) { Text("Speichern & laden") }
             },
-            dismissButton = {
-                TextButton(onClick = { showUrlDialog = false }) { Text("Abbrechen") }
-            }
+            dismissButton = { TextButton(onClick = { showUrlDialog = false }) { Text("Abbrechen") } }
         )
+    }
+}
+
+@Composable
+private fun SettingsPanel(
+    playlistUrl: String,
+    onPlaylist: () -> Unit,
+    autoFullscreen: Boolean,
+    onAutoFullscreen: (Boolean) -> Unit,
+    okOpensList: Boolean,
+    onOkOpensList: (Boolean) -> Unit,
+    leftRightSwitch: Boolean,
+    onLeftRightSwitch: (Boolean) -> Unit,
+    backClosesOverlay: Boolean,
+    onBackClosesOverlay: (Boolean) -> Unit,
+    onReload: () -> Unit,
+    onClose: () -> Unit
+) {
+    Column(Modifier.fillMaxSize().background(Background.copy(alpha = 0.98f)).padding(28.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("⚙  Einstellungen", color = TextMain, fontSize = 30.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            TextButton(onClick = onClose) { Text("Fertig") }
+        }
+        Text("PashkaTV · Android TV", color = Color.LightGray)
+        Spacer(Modifier.height(18.dp))
+        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+            Column(Modifier.width(230.dp).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("Allgemein", "Playlist", "Player", "Fernbedienung", "Über").forEachIndexed { index, label ->
+                    Surface(color = if (index == 3) Accent.copy(alpha = 0.25f) else Panel, shape = RoundedCornerShape(9.dp)) {
+                        Text(label, color = TextMain, modifier = Modifier.fillMaxWidth().padding(14.dp))
+                    }
+                }
+            }
+            Column(Modifier.weight(1f).fillMaxHeight()) {
+                Text("Playlist", color = Accent, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                Text(if (playlistUrl.isBlank()) "Keine Playlist gespeichert" else playlistUrl, color = Color.LightGray, maxLines = 2)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Button(onClick = onPlaylist) { Text("Playlist bearbeiten") }
+                    OutlinedButton(onClick = onReload) { Text("Playlist neu laden") }
+                }
+                Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 12.dp))
+                Text("Player", color = Accent, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                SettingSwitch("Nach Senderauswahl Vollbild", autoFullscreen, onAutoFullscreen)
+                Divider(color = Color.DarkGray, modifier = Modifier.padding(vertical = 12.dp))
+                Text("Fernbedienung", color = Accent, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                SettingSwitch("OK-Taste öffnet / schließt Senderliste", okOpensList, onOkOpensList)
+                SettingSwitch("Links / Rechts wechselt Sender", leftRightSwitch, onLeftRightSwitch)
+                SettingSwitch("Zurück blendet Menüs / Senderliste aus", backClosesOverlay, onBackClosesOverlay)
+                Spacer(Modifier.height(12.dp))
+                Text("Tastenbelegung", color = TextMain, fontWeight = FontWeight.SemiBold)
+                Text("OK / Enter: Senderliste     ← / →: Sender wechseln", color = Color.LightGray)
+                Text("MENU: Einstellungen     Zurück: Overlay schließen", color = Color.LightGray)
+                Spacer(Modifier.weight(1f))
+                Text("PashkaTV 2.0 · IPTV-Player für eigene M3U/M3U8-Playlists", color = Color.Gray, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingSwitch(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = TextMain, modifier = Modifier.weight(1f))
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
